@@ -310,4 +310,45 @@ def make_tools(session):
 
         return summary
 
-    return [tokenize_tool, list_files_tool, check_missing_tool, check_duplicates_tool, sample_data_tool, describe_data_tool]
+    @tool
+    def inspect_data_tool(n: int = 3) -> Dict[str, Any]:
+        """Inspects session.dataframe returning total row count, column names, and the first n rows.
+
+        Args:
+            n: Number of rows to return (default 3). Text values longer than 100 characters are truncated with '...'.
+
+        Returns:
+            Dict containing total_rows, columns, and preview_rows.
+        """
+        df = session.dataframe
+        if df is None:
+            return {"status": "error", "message": "No dataset loaded in session."}
+
+        total_rows = int(len(df))
+        columns = list(df.columns)
+        
+        head_df = df.head(n).copy()
+        for col in head_df.columns:
+            head_df[col] = head_df[col].apply(
+                lambda val: (str(val)[:100] + "...") if isinstance(val, str) and len(val) > 100 else val
+            )
+        
+        preview_rows = head_df.to_dict(orient="records")
+
+        result_id = session.next_result_id("inspect_data")
+        summary = {
+            "result_id": result_id,
+            "total_rows": total_rows,
+            "columns": columns,
+            "preview_rows": preview_rows,
+        }
+
+        session.store_result(
+            tool_name="inspect_data_tool",
+            args={"n": n},
+            summary=summary,
+        )
+
+        return summary
+
+    return [tokenize_tool, list_files_tool, check_missing_tool, check_duplicates_tool, sample_data_tool, describe_data_tool, inspect_data_tool]

@@ -167,3 +167,61 @@ def test_tokenize_tool():
     record = session.results_store[result_id]["record"]
     assert record.summary["total_documents"] == 8
     assert record.summary["total_tokens"] == 27
+
+
+def test_describe_data_tool():
+    session = SessionState()
+    premade_tools, _ = load_workspace_tools("premade_tools", session)
+    load_dataset_tool = next(t for t in premade_tools if t.name == "load_dataset_tool")
+
+    load_dataset_tool.invoke({
+        "file_path": "agent_dev/sample_fixture.csv",
+        "text_column": "text",
+        "label_column": "label"
+    })
+
+    data_tools = make_tools(session)
+    describe_data_tool = next(t for t in data_tools if t.name == "describe_data_tool")
+
+    res = describe_data_tool.invoke({})
+
+    # Check known answer #18 expectations using pytest.approx
+    assert res["overall"]["mean"] == pytest.approx(19.875, abs=1e-3)
+    assert res["overall"]["std"] == pytest.approx(9.4330, abs=1e-3)
+
+    assert res["per_category"]["catA"]["mean"] == pytest.approx(17.25, abs=1e-3)
+    assert res["per_category"]["catB"]["mean"] == pytest.approx(22.5, abs=1e-3)
+
+    # Check session.pending_figure is set
+    assert session.pending_figure is not None
+
+
+def test_inspect_data_tool():
+    import pandas as pd
+    session = SessionState()
+    premade_tools, _ = load_workspace_tools("premade_tools", session)
+    load_dataset_tool = next(t for t in premade_tools if t.name == "load_dataset_tool")
+
+    load_dataset_tool.invoke({
+        "file_path": "agent_dev/sample_fixture.csv",
+        "text_column": "text",
+        "label_column": "label"
+    })
+
+    data_tools = make_tools(session)
+    inspect_data_tool = next(t for t in data_tools if t.name == "inspect_data_tool")
+
+    # 1. Test n=3 inspection
+    res = inspect_data_tool.invoke({"n": 3})
+    assert res["total_rows"] == 8
+    assert len(res["preview_rows"]) == 3
+    assert res["preview_rows"][0]["text"] == "always alpha alpha alpha beta"
+
+    # 2. Test text truncation logic with a >100 character string using n=9
+    long_text = "a" * 150
+    new_row = pd.DataFrame([{"text": long_text, "label": "catA"}])
+    session.dataframe = pd.concat([session.dataframe, new_row], ignore_index=True)
+
+    res_long = inspect_data_tool.invoke({"n": 9})
+    expected_truncated = "a" * 100 + "..."
+    assert res_long["preview_rows"][-1]["text"] == expected_truncated
